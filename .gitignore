@@ -1,5 +1,5 @@
 # Virtual Environment
-img_classifier_env/
+img_clasfr_env/
 env/
 ENV/
 .venv/
@@ -39,6 +39,7 @@ vit-plantnet-model/
 logs/
 checkpoints/
 runs/
+wandb/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -57,7 +58,7 @@ runs/
 .env.local
 
 # Data files (optional - uncomment if you don't want to track large datasets)
-# data/
+data/
 # *.csv
 # *.h5
 # *.pkl

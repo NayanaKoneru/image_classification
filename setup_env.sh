@@ -13,18 +13,24 @@ then
 fi
 
 # Create virtual environment with Python 3.10
-python3.10 -m venv img_classifier_env
+echo "Creating virtual environment..."
+python3.10 -m venv img_clasfr_env
+
+# Wait a moment for filesystem to update
+sleep 1
 
 # Check if venv was created successfully
-if [ ! -d "venv" ]; then
+if [ ! -d "img_clasfr_env" ] || [ ! -f "img_clasfr_env/bin/activate" ]; then
     echo "Error: Failed to create virtual environment"
+    echo "Please ensure python3.10-venv package is installed:"
+    echo "  sudo apt-get install python3.10-venv"
     exit 1
 fi
 
 echo "Virtual environment created successfully!"
 
 # Activate virtual environment
-source img_classifier_env/bin/activate
+source img_clasfr_env/bin/activate
 
 # Upgrade pip
 echo "Upgrading pip..."
@@ -41,5 +47,5 @@ fi
 
 echo ""
 echo "Setup complete!"
-echo "To activate the virtual environment, run: source img_classifier_env/bin/activate"
+echo "To activate the virtual environment, run: source img_clasfr_env/bin/activate"
 echo "To deactivate, run: deactivate"

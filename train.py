@@ -26,12 +26,43 @@ from torchvision.transforms import (
 )
 import numpy as np
 from evaluate import load as load_metric
+import wandb
 
 
-def load_plantnet_dataset():
-    """Load the PlantNet300K dataset from Hugging Face."""
+def load_plantnet_dataset(use_streaming=False, cache_dir=None, num_proc=4):
+    """Load the PlantNet300K dataset from Hugging Face.
+    
+    Args:
+        use_streaming: If True, stream data instead of downloading all at once
+        cache_dir: Custom cache directory to store downloaded data
+        num_proc: Number of processes for parallel data loading
+    """
     print("Loading PlantNet300K dataset...")
-    dataset = load_dataset("mikehemberger/plantnet300K")
+    
+    # Set cache directory (defaults to ~/.cache/huggingface/datasets)
+    if cache_dir is None:
+        cache_dir = "./data/cache"
+    
+    try:
+        # Try loading from cache first
+        dataset = load_dataset(
+            "mikehemberger/plantnet300K",
+            cache_dir=cache_dir,
+            num_proc=num_proc,  # Parallel loading
+            streaming=use_streaming,
+            # Keep data in memory for faster access
+            keep_in_memory=False  # Set True if you have enough RAM
+        )
+        print(f"Dataset loaded successfully from cache: {cache_dir}")
+    except Exception as e:
+        print(f"Error loading dataset: {e}")
+        print("Attempting to download with optimizations...")
+        dataset = load_dataset(
+            "mikehemberger/plantnet300K",
+            cache_dir=cache_dir,
+            num_proc=num_proc
+        )
+    
     return dataset
 
 
@@ -75,9 +106,12 @@ def create_transforms(image_processor, is_train=True):
 
 
 def preprocess_data(examples, image_processor, transforms):
-    """Preprocess images for the model."""
+    """Preprocess images for the model with batch processing."""
+    # Process images in batch for better performance
+    images = examples['image']
     examples['pixel_values'] = [
-        transforms(image.convert("RGB")) for image in examples['image']
+        transforms(img.convert("RGB")) if img.mode != "RGB" else transforms(img) 
+        for img in images
     ]
     return examples
 
@@ -98,13 +132,35 @@ def main():
     BATCH_SIZE = 32
     NUM_EPOCHS = 10
     LEARNING_RATE = 2e-5
+    WANDB_PROJECT = "vit-plantnet-classification"
+    
+    # Data loading optimization settings
+    USE_STREAMING = True  # Set to True for very large datasets
+    CACHE_DIR = "./data/cache"  # Local cache for faster subsequent loads
+    NUM_WORKERS = 8  # Number of parallel data loading workers
+    
+    # Initialize Weights & Biases
+    wandb.init(
+        project=WANDB_PROJECT,
+        name=f"vit-base-plantnet-{wandb.util.generate_id()}",
+        config={
+            "model_name": MODEL_NAME,
+            "batch_size": BATCH_SIZE,
+            "num_epochs": NUM_EPOCHS,
+            "learning_rate": LEARNING_RATE,
+        }
+    )
     
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
-    # Load dataset
-    dataset = load_plantnet_dataset()
+    # Load dataset with optimizations
+    dataset = load_plantnet_dataset(
+        use_streaming=USE_STREAMING,
+        cache_dir=CACHE_DIR,
+        num_proc=NUM_WORKERS
+    )
     print(f"Dataset splits: {dataset.keys()}")
     
     # Get label mappings
@@ -120,9 +176,10 @@ def main():
     train_transforms = create_transforms(image_processor, is_train=True)
     val_transforms = create_transforms(image_processor, is_train=False)
     
-    # Preprocess datasets
+    # Preprocess datasets with batched processing
     print("Preprocessing datasets...")
     if 'train' in dataset:
+        # Use with_transform for lazy loading (more memory efficient)
         train_dataset = dataset['train'].with_transform(
             lambda x: preprocess_data(x, image_processor, train_transforms)
         )
@@ -180,6 +237,10 @@ def main():
         remove_unused_columns=False,
         dataloader_num_workers=4,
         fp16=torch.cuda.is_available(),
+        # Weights & Biases integration
+        report_to=["wandb", "tensorboard"],
+        run_name=f"vit-plantnet-{wandb.run.id}",
+        logging_first_step=True,
     )
     
     # Data collator
@@ -215,6 +276,19 @@ def main():
     print("\nTraining completed!")
     print(f"Training metrics: {train_result.metrics}")
     print(f"Evaluation metrics: {metrics}")
+    
+    # Log final metrics to wandb
+    wandb.log({
+        "final_eval_accuracy": metrics.get("eval_accuracy", 0),
+        "final_eval_loss": metrics.get("eval_loss", 0),
+    })
+    
+    # Finish wandb run
+    wandb.finish()
+    
+    print(f"\nTensorBoard logs saved to: {OUTPUT_DIR}/logs")
+    print(f"View TensorBoard with: tensorboard --logdir {OUTPUT_DIR}/logs")
+    print(f"Weights & Biases dashboard: {wandb.run.url}" if wandb.run else "")
     
     return trainer, metrics
 
